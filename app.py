@@ -1,153 +1,281 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
-import seaborn as sns
+import numpy as np
 import matplotlib.pyplot as plt
+import seaborn as sns
+import plotly.express as px  # Nowa biblioteka do interaktywnych wykresów
 
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import r2_score, mean_absolute_error
+
+# ---------------------------------------------------------
 # Konfiguracja strony
+# ---------------------------------------------------------
 st.set_page_config(
-    page_title="Eksplorator Win i Parowania Potraw",
-    page_icon="🍷",
-    layout="wide"
+    page_title="Wine Analytics & Food Pairings Pro",
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-# Tytuł główny
-st.title("🍷 Eksplorator Win i Parowania Potraw")
-st.markdown("Aplikacja do analizy jakości wina oraz rekomendacji kulinarnych.")
+st.title("🍷 Wine Analytics & Food Pairings Pro")
+st.markdown(
+    "Rozbudowana aplikacja do eksploracji jakości win oraz parowania win z jedzeniem. "
+    "Zawiera nowe wizualizacje oraz porównanie modeli ML."
+)
 
-# Funkcja ładowania danych
+# ---------------------------------------------------------
+# Funkcje wczytywania danych
+# ---------------------------------------------------------
 @st.cache_data
-def load_data():
+def load_wine_quality(path: str = "winequality-red.csv") -> pd.DataFrame:
     try:
-        # Ładowanie datasetów
-        df_pairings = pd.read_csv("wine_food_pairings.csv")
-        df_quality = pd.read_csv("winequality-red.csv")
-        return df_pairings, df_quality
+        df = pd.read_csv(path)
+        return df
     except FileNotFoundError:
-        st.error("Nie znaleziono plików CSV. Upewnij się, że 'wine_food_pairings.csv' i 'winequality-red.csv' są w katalogu z aplikacją.")
-        return None, None
+        return None
 
-df_pairings, df_quality = load_data()
+@st.cache_data
+def load_wine_food_pairings(path: str = "wine_food_pairings.csv") -> pd.DataFrame:
+    try:
+        df = pd.read_csv(path)
+        return df
+    except FileNotFoundError:
+        return None
 
-if df_pairings is not None and df_quality is not None:
+# ---------------------------------------------------------
+# Wczytanie danych
+# ---------------------------------------------------------
+wine_quality_df = load_wine_quality()
+pairings_df = load_wine_food_pairings()
+
+# ---------------------------------------------------------
+# Sidebar – wybór modułu
+# ---------------------------------------------------------
+st.sidebar.header("⚙️ Ustawienia")
+module = st.sidebar.radio(
+    "Wybierz moduł:",
+    options=["Analiza jakości wina", "Parowanie wina z jedzeniem"]
+)
+
+# =========================================================
+# 1. ANALIZA JAKOŚCI WINA
+# =========================================================
+if module == "Analiza jakości wina":
+    st.subheader("📊 Analiza jakości czerwonych win")
     
-    # Pasek boczny - Nawigacja
-    st.sidebar.header("Nawigacja")
-    dataset_choice = st.sidebar.radio(
-        "Wybierz moduł analizy:",
-        ("Parowanie Wina z Jedzeniem", "Analiza Jakości Wina (Chemia)")
-    )
-
-    # --- MODUŁ 1: PAROWANIE WINA Z JEDZENIEM ---
-    if dataset_choice == "Parowanie Wina z Jedzeniem":
-        st.header("🍽️ Parowanie Wina z Jedzeniem")
-        st.write("Znajdź idealne połączenie wina i potrawy w oparciu o typ kuchni i kategorię.")
-
-        # Statystyki ogólne
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Liczba parowań", df_pairings.shape[0])
-        col2.metric("Liczba typów win", df_pairings['wine_type'].nunique())
-        col3.metric("Liczba potraw", df_pairings['food_item'].nunique())
-
-        st.markdown("---")
-
-        # Sekcja wyszukiwania
-        st.subheader("🔍 Wyszukiwarka Rekomendacji")
-        
-        search_mode = st.radio("Czego szukasz?", ["Mam wino, szukam potrawy", "Mam potrawę, szukam wina"], horizontal=True)
-
-        if search_mode == "Mam wino, szukam potrawy":
-            selected_wine = st.selectbox("Wybierz wino:", sorted(df_pairings['wine_type'].unique()))
-            
-            # Filtrowanie
-            filtered_df = df_pairings[df_pairings['wine_type'] == selected_wine]
-            
-            # Sortowanie po jakości
-            best_pairings = filtered_df.sort_values(by='pairing_quality', ascending=False).head(10)
-            
-            st.write(f"Najlepsze potrawy do wina **{selected_wine}**:")
-            st.dataframe(best_pairings[['food_item', 'food_category', 'cuisine', 'pairing_quality', 'quality_label', 'description']], use_container_width=True)
-
-        else: # Mam potrawę
-            selected_food = st.selectbox("Wybierz potrawę:", sorted(df_pairings['food_item'].unique()))
-            
-            # Filtrowanie
-            filtered_df = df_pairings[df_pairings['food_item'] == selected_food]
-            
-            # Sortowanie po jakości
-            best_pairings = filtered_df.sort_values(by='pairing_quality', ascending=False).head(10)
-            
-            st.write(f"Najlepsze wina do potrawy **{selected_food}**:")
-            st.dataframe(best_pairings[['wine_type', 'wine_category', 'pairing_quality', 'quality_label', 'description']], use_container_width=True)
-
-        st.markdown("---")
-        
-        # Analiza wizualna
-        st.subheader("📊 Analiza Trendów")
-        
-        chart_col1, chart_col2 = st.columns(2)
-        
-        with chart_col1:
-            st.write("**Średnia jakość parowania wg Kuchni**")
-            cuisine_quality = df_pairings.groupby('cuisine')['pairing_quality'].mean().reset_index().sort_values(by='pairing_quality', ascending=False)
-            fig_cuisine = px.bar(cuisine_quality, x='cuisine', y='pairing_quality', color='pairing_quality', color_continuous_scale='Viridis')
-            st.plotly_chart(fig_cuisine, use_container_width=True)
-            
-        with chart_col2:
-            st.write("**Rozkład ocen jakości parowania**")
-            fig_hist = px.histogram(df_pairings, x='quality_label', category_orders={"quality_label": ["Terrible", "Poor", "Neutral", "Good", "Excellent"]})
-            st.plotly_chart(fig_hist, use_container_width=True)
-
-
-    # --- MODUŁ 2: ANALIZA JAKOŚCI WINA ---
-    elif dataset_choice == "Analiza Jakości Wina (Chemia)":
-        st.header("🧪 Fizykochemiczna Analiza Jakości Wina")
-        st.write("Zbadaj jak właściwości chemiczne wpływają na ocenę jakości wina.")
-
-        if st.checkbox("Pokaż surowe dane"):
-            st.dataframe(df_quality.head())
-
-        # Korelacja
-        st.subheader("🔥 Macierz Korelacji")
-        st.write("Sprawdź, które parametry są ze sobą powiązane.")
-        
-        # Obliczanie korelacji
-        corr = df_quality.corr()
-        fig_corr, ax = plt.subplots(figsize=(10, 8))
-        sns.heatmap(corr, annot=True, fmt=".2f", cmap="coolwarm", ax=ax)
-        st.pyplot(fig_corr)
-
-        st.markdown("---")
-
-        # Interaktywny wykres punktowy
-        st.subheader("📈 Eksploracja Zależności")
-        col_x, col_y, col_color = st.columns(3)
-        
-        with col_x:
-            x_axis = st.selectbox("Oś X:", df_quality.columns, index=10) # alcohol default
-        with col_y:
-            y_axis = st.selectbox("Oś Y:", df_quality.columns, index=1) # volatile acidity default
-        with col_color:
-            color_by = st.selectbox("Koloruj wg:", ['quality', 'pH', 'alcohol'], index=0)
-
-        fig_scatter = px.scatter(
-            df_quality, 
-            x=x_axis, 
-            y=y_axis, 
-            color=color_by, 
-            size='total sulfur dioxide', 
-            hover_data=df_quality.columns,
-            title=f"Relacja: {x_axis} vs {y_axis}"
+    # Sprawdzenie dostępności pliku
+    if wine_quality_df is None:
+        st.error(
+            "Nie udało się wczytać `winequality-red.csv`.\n\n"
+            "Upewnij się, że plik znajduje się w tym samym katalogu co `app.py`."
         )
-        st.plotly_chart(fig_scatter, use_container_width=True)
+        st.stop()
 
-        # Analiza wpływu na jakość (Boxplot)
-        st.subheader("📦 Wpływ parametru na ocenę jakości (Quality)")
-        selected_feature = st.selectbox("Wybierz parametr do analizy:", [col for col in df_quality.columns if col != 'quality'])
+    df = wine_quality_df.copy()
+
+    # --- Sekcja: Przegląd Danych ---
+    with st.expander("🔎 Podgląd danych surowych"):
+        st.dataframe(df.head())
+        st.write(df.describe().T)
+
+    # --- Sekcja: Nowe Wizualizacje ---
+    st.markdown("---")
+    st.markdown("### 🎨 Zaawansowane Wizualizacje (Nowość)")
+    
+    viz_col1, viz_col2 = st.columns(2)
+    
+    # 1. Box Plot (Wykres Pudełkowy)
+    with viz_col1:
+        st.markdown("**1. Rozkład cechy względem jakości (Box Plot)**")
+        # Wybór cechy (domyślnie alcohol, jeśli istnieje)
+        default_idx = df.columns.get_loc("alcohol") if "alcohol" in df.columns else 0
+        feature_box = st.selectbox("Wybierz cechę do analizy:", df.columns.drop('quality'), index=default_idx)
         
-        fig_box = px.box(df_quality, x='quality', y=selected_feature, color='quality', title=f"Rozkład {selected_feature} dla różnych ocen jakości")
+        # Używamy Plotly dla interaktywności
+        fig_box = px.box(df, x="quality", y=feature_box, color="quality", 
+                         title=f"Rozkład: {feature_box} vs Quality",
+                         color_discrete_sequence=px.colors.sequential.RdBu)
         st.plotly_chart(fig_box, use_container_width=True)
 
-# Stopka
-st.markdown("---")
-st.caption("Aplikacja stworzona na podstawie dostarczonych danych CSV.")
+    # 2. Bubble Chart (Wykres Bąbelkowy 3D-like)
+    with viz_col2:
+        st.markdown("**2. Relacja 3 zmiennych (Bubble Chart)**")
+        
+        # Bezpieczne indeksy domyślne
+        cols = list(df.columns.drop('quality'))
+        idx_x = cols.index("fixed acidity") if "fixed acidity" in cols else 0
+        idx_y = cols.index("pH") if "pH" in cols else min(1, len(cols)-1)
+        idx_s = cols.index("alcohol") if "alcohol" in cols else min(2, len(cols)-1)
+
+        x_axis = st.selectbox("Oś X:", cols, index=idx_x)
+        y_axis = st.selectbox("Oś Y:", cols, index=idx_y)
+        size_axis = st.selectbox("Wielkość bąbelka:", cols, index=idx_s)
+        
+        fig_bubble = px.scatter(df, x=x_axis, y=y_axis, size=size_axis, color="quality",
+                                hover_name="quality", size_max=25,
+                                title=f"{x_axis} vs {y_axis} (wielkość = {size_axis})",
+                                color_continuous_scale="Viridis")
+        st.plotly_chart(fig_bubble, use_container_width=True)
+
+    st.markdown("---")
+    
+    # --- Sekcja: Stare Wizualizacje (Jako opcja w expanderze) ---
+    with st.expander("Klasyczne wizualizacje (Histogram, Heatmapa)"):
+        col_old1, col_old2 = st.columns(2)
+        with col_old1:
+            st.markdown("**Histogram jakości**")
+            fig, ax = plt.subplots()
+            ax.hist(df["quality"], bins=range(int(df["quality"].min()), int(df["quality"].max()) + 2), edgecolor="black", color="#800020")
+            st.pyplot(fig)
+        with col_old2:
+            st.markdown("**Macierz korelacji**")
+            fig_corr, ax_corr = plt.subplots()
+            sns.heatmap(df.corr(numeric_only=True), annot=False, cmap="coolwarm", ax=ax_corr)
+            st.pyplot(fig_corr)
+
+    # --- Sekcja: Modelowanie ML ---
+    st.markdown("### 🤖 Modele Predykcyjne (ML)")
+    
+    col_ml1, col_ml2 = st.columns([1, 2])
+    
+    with col_ml1:
+        st.info("Konfiguracja modelu")
+        model_type = st.radio("Wybierz algorytm:", ["Random Forest", "Gradient Boosting (Nowy!)"])
+        
+        test_size = st.slider("Zbiór testowy (%)", 10, 50, 20) / 100.0
+        
+        # Parametry zależne od modelu
+        n_estimators = st.slider("Liczba estymatorów", 50, 500, 200, 50)
+        
+        learning_rate = 0.1
+        max_depth = 3
+        if model_type == "Gradient Boosting (Nowy!)":
+            learning_rate = st.slider("Learning Rate", 0.01, 0.5, 0.1, 0.01)
+            max_depth = st.slider("Max Depth", 1, 10, 3)
+
+    with col_ml2:
+        # Przygotowanie danych
+        X = df.drop("quality", axis=1)
+        y = df["quality"]
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=42)
+        
+        # Wybór i trening modelu
+        model = None
+        if model_type == "Random Forest":
+            model = RandomForestRegressor(n_estimators=n_estimators, random_state=42)
+        else:
+            model = GradientBoostingRegressor(
+                n_estimators=n_estimators, 
+                learning_rate=learning_rate, 
+                max_depth=max_depth, 
+                random_state=42
+            )
+            
+        with st.spinner(f"Trenowanie modelu {model_type}..."):
+            model.fit(X_train, y_train)
+            y_pred = model.predict(X_test)
+            r2 = r2_score(y_test, y_pred)
+            mae = mean_absolute_error(y_test, y_pred)
+        
+        # Wyniki
+        st.success(f"Model wytrenowany: **{model_type}**")
+        res_c1, res_c2 = st.columns(2)
+        res_c1.metric("R² Score (dokładność)", f"{r2:.3f}")
+        res_c2.metric("MAE (średni błąd)", f"{mae:.3f}")
+        
+        # Wykres Rzeczywiste vs Przewidywane
+        fig_pred = px.scatter(x=y_test, y=y_pred, labels={'x': 'Rzeczywista jakość', 'y': 'Przewidywana jakość'},
+                              title="Wykres: Rzeczywistość vs Predykcja", trendline="ols")
+        st.plotly_chart(fig_pred, use_container_width=True)
+
+    # --- Feature Importance ---
+    st.markdown("#### Ważność cech dla modelu")
+    importances = pd.DataFrame({
+        'Feature': X.columns,
+        'Importance': model.feature_importances_
+    }).sort_values(by='Importance', ascending=True)
+    
+    fig_imp = px.bar(importances, x='Importance', y='Feature', orientation='h', color='Importance')
+    st.plotly_chart(fig_imp, use_container_width=True)
+    
+    # --- Symulator ---
+    st.markdown("#### 🔮 Symulator jakości")
+    with st.form("sim_form"):
+        cols = st.columns(4)
+        user_input = {}
+        for i, col_name in enumerate(X.columns):
+            with cols[i % 4]:
+                user_input[col_name] = st.number_input(col_name, value=float(df[col_name].mean()))
+        
+        submit = st.form_submit_button("Oblicz prognozę")
+        
+        if submit:
+            input_df = pd.DataFrame([user_input])
+            prediction = model.predict(input_df)[0]
+            st.metric(label="Przewidywana ocena jakości:", value=f"{prediction:.2f}")
+
+# =========================================================
+# 2. PAROWANIE WINA Z JEDZENIEM
+# =========================================================
+elif module == "Parowanie wina z jedzeniem":
+    st.subheader("🍽️ Parowanie wina z jedzeniem")
+    
+    # Sprawdzenie dostępności pliku
+    if pairings_df is None:
+        st.error(
+            "Nie udało się wczytać `wine_food_pairings.csv`.\n\n"
+            "Upewnij się, że plik znajduje się w tym samym katalogu co `app.py`."
+        )
+        st.stop()
+    
+    dfp = pairings_df.copy()
+    
+    # --- Sekcja: Filtrowanie ---
+    with st.expander("🔍 Filtry wyszukiwania", expanded=True):
+        col_f1, col_f2, col_f3 = st.columns(3)
+        with col_f1:
+            cuisine_sel = st.multiselect("Kuchnia:", options=sorted(dfp["cuisine"].unique()))
+        with col_f2:
+            food_cat_sel = st.multiselect("Kategoria jedzenia:", options=sorted(dfp["food_category"].unique()))
+        with col_f3:
+            wine_sel = st.multiselect("Typ wina:", options=sorted(dfp["wine_type"].unique()))
+            
+        if cuisine_sel: dfp = dfp[dfp["cuisine"].isin(cuisine_sel)]
+        if food_cat_sel: dfp = dfp[dfp["food_category"].isin(food_cat_sel)]
+        if wine_sel: dfp = dfp[dfp["wine_type"].isin(wine_sel)]
+
+    st.write(f"Liczba pasujących rekordów: {len(dfp)}")
+    st.dataframe(dfp.head(10))
+
+    # --- Sekcja: Nowa Wizualizacja (Sunburst) ---
+    st.markdown("---")
+    st.markdown("### ☀️ Hierarchia Smaków (Sunburst Chart)")
+    st.info("Ten wykres pokazuje jak rozkładają się kategorie kuchni, jedzenia i pasujące do nich wina.")
+    
+    # Przygotowanie danych do Sunburst (musi mieć niezerowe wartości)
+    sunburst_data = dfp.groupby(['cuisine', 'food_category', 'wine_type']).size().reset_index(name='count')
+    
+    if not sunburst_data.empty:
+        fig_sun = px.sunburst(
+            sunburst_data, 
+            path=['cuisine', 'food_category', 'wine_type'], 
+            values='count',
+            color='cuisine',
+            title="Interaktywna mapa parowania: Kuchnia -> Składnik -> Wino"
+        )
+        st.plotly_chart(fig_sun, use_container_width=True)
+    else:
+        st.warning("Zbyt mało danych do wygenerowania wykresu po przefiltrowaniu.")
+
+    # --- Sekcja: Statystyki ---
+    col_stat1, col_stat2 = st.columns(2)
+    with col_stat1:
+        st.markdown("**Top 5 Kuchni w bazie**")
+        top_cuisines = dfp['cuisine'].value_counts().head(5)
+        st.bar_chart(top_cuisines)
+        
+    with col_stat2:
+        st.markdown("**Rozkład ocen parowania**")
+        fig_hist = px.histogram(dfp, x="pairing_quality", nbins=20, title="Histogram jakości dopasowania")
+        st.plotly_chart(fig_hist, use_container_width=True)
